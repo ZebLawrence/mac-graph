@@ -1340,7 +1340,9 @@ export interface ChunkResult {
 }
 
 export function chunkFile(input: ChunkInput): ChunkResult[] {
-  const lines = input.text.split('\n')
+  // Strip trailing newline before splitting so 'a\nb\nc\n' → ['a','b','c'] (3 lines, not 4)
+  const normalised = input.text.endsWith('\n') ? input.text.slice(0, -1) : input.text
+  const lines = normalised.split('\n')
   if (input.symbols.length > 0) {
     return input.symbols.map(s => buildChunk(input.filePath, lines, s.startLine, s.endLine, s.id))
   }
