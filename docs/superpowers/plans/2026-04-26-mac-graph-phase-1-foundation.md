@@ -2426,17 +2426,26 @@ export function healthRoutes(deps: HealthDeps): Hono {
   app.get('/health', async c => {
     const manifest = await readManifest(deps.dataDir)
     const lockState = deps.lock.inspect()
-    const counts = await deps.store.raw<{ files: bigint; symbols: bigint }>(
-      `OPTIONAL MATCH (f:File) WITH count(f) AS files
-       OPTIONAL MATCH (s:Symbol) RETURN files, count(s) AS symbols`
-    ).catch(() => [{ files: 0n, symbols: 0n }])
+    // Use two separate queries to avoid kuzu v0.11 OPTIONAL MATCH + WITH chain quirks.
+    // Both are wrapped in .catch() so a schema-not-ready error returns zeros.
+    const [fileRows, symbolRows] = await Promise.all([
+      deps.store.raw<{ files: bigint }>(
+        `MATCH (f:File) RETURN count(f) AS files`
+      ).catch(() => [{ files: 0n }]),
+      deps.store.raw<{ symbols: bigint }>(
+        `MATCH (s:Symbol) RETURN count(s) AS symbols`
+      ).catch(() => [{ symbols: 0n }])
+    ])
     return c.json({
       ok: true,
       uptimeMs: Date.now() - deps.startedAt,
       indexing: lockState.held,
       currentJob: lockState.holder,
       manifest,
-      rowCounts: { files: Number(counts[0]?.files ?? 0), symbols: Number(counts[0]?.symbols ?? 0) },
+      rowCounts: {
+        files: Number(fileRows[0]?.files ?? 0),
+        symbols: Number(symbolRows[0]?.symbols ?? 0)
+      },
       embeddingModelLoaded: true  // set after embedder.ready() at startup
     })
   })
@@ -2493,7 +2502,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 ```ts
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hono } from 'hono'
@@ -2511,7 +2520,8 @@ describe('GET /health', () => {
 
   beforeAll(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'mg-h-'))
-    mkdirSync(join(dataDir, 'kuzu'), { recursive: true })
+    // Note: don't pre-mkdir the kuzu path — kuzu rejects existing directory paths.
+    // GraphStore.open() handles the path itself.
     store = await GraphStore.open(join(dataDir, 'kuzu'))
     fts = new FtsStore(join(dataDir, 'fts.db'))
     const embedder = new Embedder('Xenova/bge-small-en-v1.5')
