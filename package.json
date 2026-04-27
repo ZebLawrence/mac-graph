@@ -12,7 +12,7 @@
     "dev": "tsx watch src/server.ts",
     "test": "vitest run --passWithNoTests --exclude tests/e2e",
     "test:watch": "vitest --passWithNoTests --exclude tests/e2e",
-    "test:e2e": "E2E=1 vitest run tests/e2e",
+    "test:e2e": "E2E=1 vitest run --config vitest.e2e.config.ts",
     "lint": "eslint src tests",
     "typecheck": "tsc --noEmit",
     "docker:build": "docker build -t mac-graph:latest .",
@@ -37,6 +37,7 @@
   "devDependencies": {
     "@sourcegraph/scip-typescript": "^0.4.0",
     "@types/better-sqlite3": "^7.6.0",
+    "@types/dockerode": "^4.0.1",
     "@types/node": "^22.0.0",
     "dockerode": "^4.0.0",
     "eslint": "^9.0.0",
