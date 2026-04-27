@@ -1,6 +1,7 @@
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js'
+// See src/mcp/tools/query.ts for the registration pattern used by T20–T24.
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { McpDeps } from '../server.js'
 
-export function registerDetectChangesTool(_server: Server, _deps: McpDeps): void {
+export function registerDetectChangesTool(_mcp: McpServer, _deps: McpDeps): void {
   // Implemented in T23
 }

@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import type { GraphStore } from '../store/kuzu.js'
 import type { FtsStore } from '../store/fts.js'
@@ -21,28 +21,47 @@ export interface McpDeps {
   embeddingModel: string
 }
 
-export async function buildMcpApp(deps: McpDeps): Promise<Hono> {
-  const server = new Server(
+/**
+ * Create a fresh McpServer pre-registered with all tools.
+ *
+ * McpServer (high-level SDK class) maintains a tool registry and installs a
+ * single ListTools + CallTool handler pair.  Each registerXxxTool call adds
+ * one entry to that registry via mcp.tool().  See tools/query.ts for the full
+ * pattern description.
+ *
+ * NOTE: The WebStandardStreamableHTTPServerTransport in stateless mode cannot
+ * be reused across requests ("Stateless transport cannot be reused").  The
+ * McpServer is also single-transport-at-a-time.  We therefore build a new
+ * server + transport for every incoming request — both are lightweight objects
+ * with no I/O open between requests.
+ */
+function buildMcpServer(deps: McpDeps): McpServer {
+  const mcp = new McpServer(
     { name: 'mac-graph', version: '0.1.0' },
     { capabilities: { tools: {} } }
   )
-  registerQueryTool(server, deps)
-  registerContextTool(server, deps)
-  registerImpactTool(server, deps)
-  registerDetectChangesTool(server, deps)
-  registerReindexTool(server, deps)
+  registerQueryTool(mcp, deps)
+  registerContextTool(mcp, deps)
+  registerImpactTool(mcp, deps)
+  registerDetectChangesTool(mcp, deps)
+  registerReindexTool(mcp, deps)
+  return mcp
+}
 
-  // Use WebStandardStreamableHTTPServerTransport — designed for Hono/Cloudflare/Bun
-  // (web-standard Request → Response). The Node.js StreamableHTTPServerTransport
-  // wraps this for Express/IncomingMessage but is wrong for Hono.
-  // Omitting sessionIdGenerator puts the transport in stateless mode.
-  const transport = new WebStandardStreamableHTTPServerTransport()
-  await server.connect(transport)
-
+export async function buildMcpApp(deps: McpDeps): Promise<Hono> {
   const app = new Hono()
+
   app.all('/mcp', async c => {
-    // handleRequest(req: Request): Promise<Response> — native Hono fit
+    // Create a new server + transport per request.
+    // enableJsonResponse: true forces the transport to return application/json
+    // instead of text/event-stream for single-request round-trips.
+    const mcp = buildMcpServer(deps)
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      enableJsonResponse: true,
+    })
+    await mcp.connect(transport)
     return transport.handleRequest(c.req.raw)
   })
+
   return app
 }
