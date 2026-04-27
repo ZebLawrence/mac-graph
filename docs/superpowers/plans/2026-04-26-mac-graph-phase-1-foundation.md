@@ -22,6 +22,7 @@ Recorded 2026-04-26 after T01 surfaced the following plan errors. Subsequent tas
 4. **Vitest 2.x exits 1 on no-tests-found** (was 0 in v1). Add `--passWithNoTests` to `test` and `test:watch` scripts so the scaffold passes between tasks.
 5. **`tree-sitter` must be `^0.22.0`** (not `^0.21.0`) to satisfy the grammars' `^0.22.4` peer requirement.
 6. **Native build scripts** (`better-sqlite3`, `kuzu`, `tree-sitter`, etc.) are blocked by pnpm 10's default security policy. The scaffold task installs successfully but the natives don't compile until `pnpm approve-builds` is run. T07/T08/T13/T14 must include that step before their first test run.
+7. **`tsconfig.json` cannot have `rootDir: "src"`** while `include` covers both `src/**/*` and `tests/**/*` — tests live outside rootDir, which makes `tsc` reject them. Drop `rootDir`. T27 (Dockerfile/build setup) will introduce a dedicated `tsconfig.build.json` that re-adds `rootDir: "src"` and excludes tests for production builds. Until then, `pnpm build` would emit `dist/src/...` + `dist/tests/...`, which is harmless because no task before T27 actually runs `pnpm build`.
 
 ---
 
@@ -226,7 +227,6 @@ export interface Manifest {
     "moduleResolution": "Bundler",
     "lib": ["ES2022"],
     "outDir": "dist",
-    "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
