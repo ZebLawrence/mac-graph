@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.dev/
+.mac-graph-data/
+.mac-graph-wiki/
+*.log
+.DS_Store
