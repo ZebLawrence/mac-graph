@@ -615,7 +615,7 @@ describe('kuzu schema', () => {
     await applySchema(conn)
     await applySchema(conn)  // second call is no-op
 
-    const result = await conn.query("CALL show_tables() RETURN *")
+    const result = await conn.query("CALL show_tables() RETURN *") as kuzu.QueryResult
     const rows = await result.getAll()
     const names = rows.map((r: any) => r.name).sort()
     expect(names).toContain('Symbol')
@@ -801,9 +801,11 @@ export class GraphStore {
     params: Record<string, unknown> = {}
   ): Promise<kuzu.QueryResult> {
     const prepared = await this.conn.prepare(cypher)
-    const result = await this.conn.execute(prepared, params)
+    // Cast: callers pass valid KuzuValues at runtime; the internal API just
+    // wants the more permissive Record<string, unknown> signature for ergonomics.
+    const result = await this.conn.execute(prepared, params as Record<string, kuzu.KuzuValue>)
     // execute() may return a single QueryResult or an array; normalise to one
-    return Array.isArray(result) ? result[0] : result
+    return Array.isArray(result) ? result[0]! : result
   }
 
   async upsertFile(f: FileNode): Promise<void> {
