@@ -11,7 +11,7 @@ import { buildMcpApp } from '../../src/mcp/server.js'
 
 const FIX = join(__dirname, '../../fixtures/scip-tiny')
 
-describe('MCP query tool', () => {
+describe('MCP tools', () => {
   let dataDir: string, store: GraphStore, fts: FtsStore, app: Awaited<ReturnType<typeof buildMcpApp>>
 
   beforeAll(async () => {
@@ -69,5 +69,21 @@ describe('MCP query tool', () => {
     const body = await res.json() as { result: { content: Array<{ type: string; text: string }> } }
     const payload = JSON.parse(body.result.content[0]!.text) as { results: Array<{ name: string }> }
     expect(payload.results.some(r => r.name === 'greet')).toBe(true)
+  })
+
+  it('context returns callers and callees for shout', async () => {
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 3,
+        method: 'tools/call',
+        params: { name: 'context', arguments: { name: 'shout' } }
+      })
+    })
+    const body = await res.json() as any
+    const payload = JSON.parse(body.result.content[0].text)
+    expect(payload.symbol?.name).toBe('shout')
+    expect(payload.callees.some((c: any) => c.symbol.name === 'greet')).toBe(true)
   })
 })
