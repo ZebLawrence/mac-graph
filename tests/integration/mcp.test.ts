@@ -86,4 +86,32 @@ describe('MCP tools', () => {
     expect(payload.symbol?.name).toBe('shout')
     expect(payload.callees.some((c: any) => c.symbol.name === 'greet')).toBe(true)
   })
+
+  it('impact identifies test files', async () => {
+    // First find greet's symbol id via context
+    const ctx = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 4,
+        method: 'tools/call',
+        params: { name: 'context', arguments: { name: 'greet' } }
+      })
+    })
+    const ctxBody = await ctx.json() as any
+    const symbolId = JSON.parse(ctxBody.result.content[0].text).symbol.id
+
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 5,
+        method: 'tools/call',
+        params: { name: 'impact', arguments: { symbol_id: symbolId, hops: 2 } }
+      })
+    })
+    const body = await res.json() as any
+    const payload = JSON.parse(body.result.content[0].text)
+    expect(payload.tests_affected).toContain('a.test.ts')
+  })
 })
