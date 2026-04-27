@@ -544,17 +544,18 @@ This project is a clean-room reimagining inspired by the *external* description 
 
 All third-party components are explicitly permissively licensed:
 
-| Component | License |
-|---|---|
-| `scip-typescript` | Apache-2.0 |
-| KuzuDB | MIT |
-| `tree-sitter` + grammars | MIT |
-| `transformers.js` | Apache-2.0 |
-| Hono | MIT |
-| Lit | BSD-3-Clause |
-| Cytoscape.js | MIT |
-| `pino` | MIT |
-| `vitest` | MIT |
-| `dockerode` | Apache-2.0 |
+| Component | License | Notes |
+|---|---|---|
+| `@sourcegraph/scip-typescript` | Apache-2.0 | CLI indexer |
+| `scip_pb.ts` (vendored from `sourcegraph/scip`) | Apache-2.0 | Vendored at `src/vendor/scip_pb.ts` since not published to npm |
+| KuzuDB | MIT | Project archived 2025-10-10; last release v0.11.3 still works. Risk accepted in lieu of rewriting the storage layer. |
+| `tree-sitter` + grammars | MIT | |
+| `transformers.js` | Apache-2.0 | |
+| Hono | MIT | |
+| Lit | BSD-3-Clause | |
+| Cytoscape.js | MIT | |
+| `pino` | MIT | |
+| `vitest` | MIT | |
+| `dockerode` | Apache-2.0 | |
 
 The mac-graph project itself ships under MIT.

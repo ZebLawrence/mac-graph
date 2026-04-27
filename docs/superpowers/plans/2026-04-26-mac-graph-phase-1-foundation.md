@@ -6,11 +6,22 @@
 
 **Architecture:** Single Node process running Hono. Reads source from `/repo` (read-only bind mount), persists graph to KuzuDB at `/data/kuzu/`, FTS to SQLite at `/data/fts.db`, embeddings in-process via `transformers.js` on CPU. SCIP-typescript handles cross-file resolution; tree-sitter handles HTML/CSS/JSON as graph nodes only (no cross-language edges).
 
-**Tech Stack:** Node 22 + TypeScript, Hono, `@modelcontextprotocol/sdk`, `kuzu` (Node SDK), `better-sqlite3`, `@xenova/transformers`, `@sourcegraph/scip` (protobuf types), `scip-typescript` (CLI), `tree-sitter` + grammars for HTML/CSS/JSON, Pino, Zod, Vitest.
+**Tech Stack:** Node 22 + TypeScript, Hono, `@modelcontextprotocol/sdk`, `kuzu` (Node SDK, v0.11.x — see archival note below), `better-sqlite3`, `@xenova/transformers`, vendored `scip_pb.ts` from sourcegraph/scip (protobuf bindings), `@sourcegraph/scip-typescript` (CLI), `tree-sitter` + grammars for HTML/CSS/JSON, Pino, Zod, Vitest.
 
 **Spec:** `docs/superpowers/specs/2026-04-26-mac-graph-design.md`
 
 **Out of scope for this plan:** wiki generation (Phase 2), Lit visualizer (Phase 3), `GET /graph` subgraph endpoint (Phase 3 — only the visualizer needs it), file watcher, multi-repo, signed images.
+
+## Plan amendments (post-brainstorm corrections)
+
+Recorded 2026-04-26 after T01 surfaced the following plan errors. Subsequent tasks must follow the corrected versions below, not the original plan body where it conflicts.
+
+1. **`@sourcegraph/scip` does not exist on npm.** The TypeScript protobuf bindings live inside the `sourcegraph/scip` GitHub repo at `bindings/typescript/scip_pb.ts` (Apache 2.0). We **vendor** that file as `src/vendor/scip_pb.ts` instead of depending on `@c4312/scip` or any other community wrapper. Task 13 below is updated accordingly.
+2. **`scip-typescript` should be `@sourcegraph/scip-typescript`** (the canonical scoped name). Update package.json devDependencies.
+3. **`kuzu` was archived 2025-10-10**, last npm release `0.11.3`. We continue to use it — it's embedded, the binary works, and migrating is YAGNI for this MVP. Pin to `^0.11.0` (not `^0.6.0`). Acceptance: archived ≠ broken; we'll migrate if/when we hit an unfixable bug.
+4. **Vitest 2.x exits 1 on no-tests-found** (was 0 in v1). Add `--passWithNoTests` to `test` and `test:watch` scripts so the scaffold passes between tasks.
+5. **`tree-sitter` must be `^0.22.0`** (not `^0.21.0`) to satisfy the grammars' `^0.22.4` peer requirement.
+6. **Native build scripts** (`better-sqlite3`, `kuzu`, `tree-sitter`, etc.) are blocked by pnpm 10's default security policy. The scaffold task installs successfully but the natives don't compile until `pnpm approve-builds` is run. T07/T08/T13/T14 must include that step before their first test run.
 
 ---
 
@@ -130,15 +141,17 @@ export interface Manifest {
 │   │   └── routes/
 │   │       ├── health.ts
 │   │       └── index-routes.ts         # POST /index, /index/incremental, GET /index/status/:id
-│   └── mcp/
-│       ├── server.ts
-│       ├── schemas.ts
-│       └── tools/
-│           ├── query.ts
-│           ├── context.ts
-│           ├── impact.ts
-│           ├── detect-changes.ts
-│           └── reindex.ts
+│   ├── mcp/
+│   │   ├── server.ts
+│   │   ├── schemas.ts
+│   │   └── tools/
+│   │       ├── query.ts
+│   │       ├── context.ts
+│   │       ├── impact.ts
+│   │       ├── detect-changes.ts
+│   │       └── reindex.ts
+│   └── vendor/
+│       └── scip_pb.ts                  # vendored from sourcegraph/scip (Apache-2.0)
 ├── fixtures/sample-app/                # mini Express + Lit + CSS + JSON for tests
 └── tests/
     ├── unit/
@@ -166,8 +179,8 @@ export interface Manifest {
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/server.ts",
-    "test": "vitest run --exclude tests/e2e",
-    "test:watch": "vitest --exclude tests/e2e",
+    "test": "vitest run --passWithNoTests --exclude tests/e2e",
+    "test:watch": "vitest --passWithNoTests --exclude tests/e2e",
     "test:e2e": "E2E=1 vitest run tests/e2e",
     "lint": "eslint src tests",
     "typecheck": "tsc --noEmit",
@@ -177,26 +190,25 @@ export interface Manifest {
   "dependencies": {
     "@hono/node-server": "^1.13.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@sourcegraph/scip": "^0.5.0",
     "@xenova/transformers": "^2.17.0",
     "better-sqlite3": "^11.5.0",
     "hono": "^4.6.0",
     "ignore": "^6.0.0",
-    "kuzu": "^0.6.0",
+    "kuzu": "^0.11.0",
     "pino": "^9.5.0",
-    "tree-sitter": "^0.21.0",
+    "tree-sitter": "^0.22.0",
     "tree-sitter-css": "^0.23.0",
     "tree-sitter-html": "^0.23.0",
     "tree-sitter-json": "^0.24.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@sourcegraph/scip-typescript": "^0.4.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "dockerode": "^4.0.0",
     "eslint": "^9.0.0",
     "pino-pretty": "^11.0.0",
-    "scip-typescript": "^0.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
@@ -285,7 +297,7 @@ Expected: lockfile created, no errors.
 - [ ] **Step 8: Verify test runner works**
 
 Run: `pnpm test`
-Expected: vitest reports `No test files found, exiting with code 0` and exits 0.
+Expected: vitest exits 0 (the `--passWithNoTests` flag in the script silences the "no tests found" failure that vitest 2.x emits by default).
 
 - [ ] **Step 9: Commit**
 
@@ -1450,6 +1462,26 @@ export function greet(name: string): string { return `hi ${name}` }
 export function shout(name: string): string { return greet(name).toUpperCase() }
 ```
 
+- [ ] **Step 1.5: Vendor `scip_pb.ts`**
+
+The Sourcegraph SCIP project does not publish TypeScript bindings as an npm package. Vendor the file directly:
+
+```bash
+mkdir -p src/vendor
+curl -fsSL https://raw.githubusercontent.com/sourcegraph/scip/main/bindings/typescript/scip_pb.ts \
+  -o src/vendor/scip_pb.ts
+```
+
+Then prepend an attribution header at the top of the vendored file:
+
+```ts
+// Vendored from sourcegraph/scip @ main, bindings/typescript/scip_pb.ts
+// Original license: Apache-2.0 (see https://github.com/sourcegraph/scip/blob/main/LICENSE).
+// This file is the only piece of mac-graph not under MIT.
+```
+
+If the vendored file uses runtime imports that aren't already in the project (e.g. `protobufjs`, `google-protobuf`), add them as dependencies and re-run `pnpm install`. Most SCIP TypeScript bindings are pure protobuf encode/decode and have a tiny dependency footprint — verify after vendoring.
+
 - [ ] **Step 2: Write the failing test**
 
 ```ts
@@ -1487,7 +1519,7 @@ describe('scip', () => {
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { scip } from '@sourcegraph/scip'
+import { scip } from '../vendor/scip_pb.js'
 import type { SymbolNode, ReferenceEdge, RefKind } from '../store/types.js'
 
 export async function runScip(repoDir: string): Promise<scip.Index> {
@@ -1603,15 +1635,15 @@ function lastSymbolPart(s: string): string {
 }
 ```
 
-> **Note for the implementer:** the SCIP protobuf API changes between versions. Verify the actual property names (`scip.SymbolRole`, `scip.SymbolInformation_Kind`, etc.) against the installed `@sourcegraph/scip` version. If names differ, update accordingly — the structure (parse, walk documents, map kinds, build references) stays the same.
+> **Note for the implementer:** the SCIP protobuf API in `scip_pb.ts` follows the protobufjs codegen pattern. Property names (`scip.SymbolRole`, `scip.SymbolInformation_Kind`, etc.) come from the upstream `scip.proto`. If the vendored file uses a different namespace export shape (e.g. flat exports rather than `scip.X`), adjust the imports — the structural mapping (parse, walk documents, map kinds, build references) is the contract, not the exact import shape. Confirm against the actual `src/vendor/scip_pb.ts` content after vendoring.
 
 - [ ] **Step 5: Run, expect PASS**
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/indexer/scip.ts tests/unit/scip.test.ts fixtures/scip-tiny/
-git commit -m "feat(indexer): scip-typescript runner + protobuf parser"
+git add src/vendor/scip_pb.ts src/indexer/scip.ts tests/unit/scip.test.ts fixtures/scip-tiny/
+git commit -m "feat(indexer): scip-typescript runner + vendored protobuf parser"
 ```
 
 ---

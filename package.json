@@ -8,8 +8,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/server.ts",
-    "test": "vitest run --exclude tests/e2e --passWithNoTests",
-    "test:watch": "vitest --exclude tests/e2e --passWithNoTests",
+    "test": "vitest run --passWithNoTests --exclude tests/e2e",
+    "test:watch": "vitest --passWithNoTests --exclude tests/e2e",
     "test:e2e": "E2E=1 vitest run tests/e2e",
     "lint": "eslint src tests",
     "typecheck": "tsc --noEmit",
@@ -32,12 +32,12 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@sourcegraph/scip-typescript": "^0.4.0",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "dockerode": "^4.0.0",
     "eslint": "^9.0.0",
     "pino-pretty": "^11.0.0",
-    "@sourcegraph/scip-typescript": "^0.4.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
