@@ -2817,7 +2817,9 @@ export const ReindexInput = z.object({
 ```ts
 import { Hono } from 'hono'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+// IMPORTANT: use the web-standard transport (Request/Response) for Hono.
+// The Node.js variant `StreamableHTTPServerTransport` takes (IncomingMessage, ServerResponse).
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import type { GraphStore } from '../store/kuzu.js'
 import type { FtsStore } from '../store/fts.js'
 import type { Embedder } from '../indexer/embed.js'
@@ -2849,15 +2851,13 @@ export async function buildMcpApp(deps: McpDeps): Promise<Hono> {
   registerDetectChangesTool(server, deps)
   registerReindexTool(server, deps)
 
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+  // Stateless mode (no session): construct with no args. With
+  // exactOptionalPropertyTypes:true we cannot pass `sessionIdGenerator: undefined`.
+  const transport = new WebStandardStreamableHTTPServerTransport()
   await server.connect(transport)
 
   const app = new Hono()
-  app.all('/mcp', async c => {
-    const req = c.req.raw
-    const res = await transport.handleRequest(req)
-    return res
-  })
+  app.all('/mcp', async c => transport.handleRequest(c.req.raw))
   return app
 }
 ```
