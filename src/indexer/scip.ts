@@ -8,6 +8,8 @@
 import { spawn } from 'node:child_process'
 import { readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { randomBytes } from 'node:crypto'
 import { fromBinary } from '@bufbuild/protobuf'
 import {
   IndexSchema,
@@ -20,7 +22,8 @@ import {
 import type { SymbolNode, ReferenceEdge, RefKind } from '../store/types.js'
 
 export async function runScip(repoDir: string): Promise<Index> {
-  const out = join(repoDir, '.mac-graph-tmp.scip')
+  // Use a unique name in OS tmpdir to avoid races when multiple tests run concurrently.
+  const out = join(tmpdir(), `.mac-graph-${randomBytes(6).toString('hex')}.scip`)
   await new Promise<void>((resolve, reject) => {
     const proc = spawn(
       'npx',
