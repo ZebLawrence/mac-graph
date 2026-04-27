@@ -114,4 +114,19 @@ describe('MCP tools', () => {
     const payload = JSON.parse(body.result.content[0].text)
     expect(payload.tests_affected).toContain('a.test.ts')
   })
+
+  it('detect_changes returns no changes immediately after index', async () => {
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 6,
+        method: 'tools/call',
+        params: { name: 'detect_changes', arguments: {} }
+      })
+    })
+    const body = await res.json() as any
+    const payload = JSON.parse(body.result.content[0].text)
+    expect(payload.index_stale).toBe(false)
+  })
 })
