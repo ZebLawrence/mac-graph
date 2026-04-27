@@ -129,4 +129,20 @@ describe('MCP tools', () => {
     const payload = JSON.parse(body.result.content[0].text)
     expect(payload.index_stale).toBe(false)
   })
+
+  it('reindex returns a started job_id', async () => {
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 7,
+        method: 'tools/call',
+        params: { name: 'reindex', arguments: { mode: 'full' } }
+      })
+    })
+    const body = await res.json() as any
+    const payload = JSON.parse(body.result.content[0].text)
+    expect(payload.status).toMatch(/^(started|busy)$/)
+    expect(payload.job_id).toBeTruthy()
+  })
 })
