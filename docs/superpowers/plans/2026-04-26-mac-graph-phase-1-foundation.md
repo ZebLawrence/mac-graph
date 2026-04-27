@@ -25,6 +25,9 @@ Recorded 2026-04-26 after T01 surfaced the following plan errors. Subsequent tas
 7. **`tsconfig.json` cannot have `rootDir: "src"`** while `include` covers both `src/**/*` and `tests/**/*` — tests live outside rootDir, which makes `tsc` reject them. Drop `rootDir`. T27 (Dockerfile/build setup) will introduce a dedicated `tsconfig.build.json` that re-adds `rootDir: "src"` and excludes tests for production builds. Until then, `pnpm build` would emit `dist/src/...` + `dist/tests/...`, which is harmless because no task before T27 actually runs `pnpm build`.
 8. **kuzu `connection.query()` does not accept a params object** — the second argument is a progress callback. Parameterized queries must use `connection.prepare(cypher)` + `connection.execute(prepared, params)`. T07 wraps this in a private `pquery(cypher, params)` helper. T07 onwards: any code that needs parameterized kuzu queries must go through `GraphStore`'s public methods (which use `pquery`) or `store.raw()` (which also uses `pquery`). Plain `conn.query(cypher)` is reserved for parameter-less statements like `truncateAll`'s `DETACH DELETE`.
 9. **`scip_pb.ts` (vendored from sourcegraph/scip) uses `@bufbuild/protobuf` codegenv2**, not protobufjs. This means: (a) the file uses **flat exports** with no `scip` namespace — import named values `IndexSchema`, `SymbolRole`, `SymbolInformation_Kind`, plus types `Index`, `Document`, `SyntaxKind`; (b) **field names are camelCase** at the TS level (`relativePath`, `symbolRoles`, `syntaxKind`, `signatureDocumentation`) even though the underlying `.proto` uses snake_case; (c) **deserialization uses `fromBinary(IndexSchema, buf)`** from `@bufbuild/protobuf`, not a `.deserialize()` method on the message class. Add `@bufbuild/protobuf@^2.12.0` to `dependencies`. The plan code in T13 Step 4 reflects all of this.
+10. **Tree-sitter grammar packages ship typings, but their `Language` type is incompatible with `tree-sitter`'s own `Language` type** in v0.22.x. T14's plan code uses `// @ts-expect-error` to suppress this, but `@ts-expect-error` then becomes a "directive unused" error itself. Real fix: drop `@ts-expect-error`, use `parser.setLanguage(GRAMMAR as any)` with an eslint-disable comment for that line. T14 plan code includes this pattern.
+11. **HTML attribute children are unnamed fields**, not `name`/`value`. Use `namedChildren[0]` (attribute_name) and `namedChildren[1]` (quoted_attribute_value). The actual value text lives in the quoted-value's first named child. Plan code in T14 Step 5 reflects this.
+12. **CSS `declaration.property` is not a named field** — use `namedChildren[0]` (property_name node). Plan code in T14 Step 6 reflects this.
 
 ---
 
@@ -1794,32 +1797,35 @@ describe('extractJsonSymbols', () => {
 
 ```ts
 import Parser from 'tree-sitter'
-// @ts-expect-error tree-sitter grammars don't ship typings
 import HTML from 'tree-sitter-html'
 import type { SymbolNode } from '../../store/types.js'
 
 const parser = new Parser()
-parser.setLanguage(HTML)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+parser.setLanguage(HTML as any)
 
 export function extractHtmlSymbols(filePath: string, source: string): SymbolNode[] {
   const tree = parser.parse(source)
   const out: SymbolNode[] = []
   walk(tree.rootNode, (node: any) => {
     if (node.type === 'attribute') {
-      const nameNode = node.childForFieldName?.('name') ?? node.namedChildren[0]
-      const valueNode = node.childForFieldName?.('value') ?? node.namedChildren[1]
+      // namedChildren[0] = attribute_name, namedChildren[1] = quoted_attribute_value
+      const nameNode = node.namedChildren?.[0]
+      const valueNode = node.namedChildren?.[1]
       if (nameNode?.text === 'id' && valueNode) {
-        const value = valueNode.text.replace(/['"]/g, '')
-        out.push(makeSymbol(filePath, `#${value}`, 'html-id', node))
-      }
-      if (nameNode?.text === 'src' && valueNode && node.parent?.type === 'self_closing_tag') {
-        // <script src=...>
+        // quoted_attribute_value -> attribute_value child holds the raw text
+        const rawValue = valueNode.namedChildren?.[0]?.text ?? valueNode.text.replace(/['"]/g, '')
+        out.push(makeSymbol(filePath, `#${rawValue}`, 'html-id', node))
       }
     }
-    if (node.type === 'element' || node.type === 'self_closing_tag') {
-      const tagName = node.namedChildren?.[0]?.namedChildren?.[0]?.text
-      if (tagName?.includes('-')) {
-        out.push(makeSymbol(filePath, tagName, 'custom-element', node))
+    if (node.type === 'element') {
+      // start_tag is first named child; tag_name is its first named child
+      const startTag = node.namedChildren?.[0]
+      if (startTag?.type === 'start_tag') {
+        const tagName = startTag.namedChildren?.[0]?.text
+        if (tagName?.includes('-')) {
+          out.push(makeSymbol(filePath, tagName, 'custom-element', node))
+        }
       }
     }
   })
@@ -1846,23 +1852,26 @@ function makeSymbol(filePath: string, name: string, kind: SymbolNode['kind'], no
 
 ```ts
 import Parser from 'tree-sitter'
-// @ts-expect-error
 import CSS from 'tree-sitter-css'
 import type { SymbolNode } from '../../store/types.js'
 
 const parser = new Parser()
-parser.setLanguage(CSS)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+parser.setLanguage(CSS as any)
 
 export function extractCssSymbols(filePath: string, source: string): SymbolNode[] {
   const tree = parser.parse(source)
   const out: SymbolNode[] = []
   walk(tree.rootNode, (node: any) => {
     if (node.type === 'class_selector') {
+      // node.text includes leading dot, e.g. '.btn-primary'
       out.push(makeSymbol(filePath, node.text, 'css-class', node))
     } else if (node.type === 'id_selector') {
+      // node.text includes leading hash, e.g. '#sidebar'
       out.push(makeSymbol(filePath, node.text, 'css-id', node))
     } else if (node.type === 'declaration') {
-      const prop = node.childForFieldName?.('property') ?? node.namedChildren?.[0]
+      // namedChildren[0] = property_name node
+      const prop = node.namedChildren?.[0]
       if (prop?.text?.startsWith('--')) {
         out.push(makeSymbol(filePath, prop.text, 'css-var', node))
       }
@@ -1891,26 +1900,28 @@ function makeSymbol(filePath: string, name: string, kind: SymbolNode['kind'], no
 
 ```ts
 import Parser from 'tree-sitter'
-// @ts-expect-error
 import JSON_LANG from 'tree-sitter-json'
 import type { SymbolNode } from '../../store/types.js'
 
 const parser = new Parser()
-parser.setLanguage(JSON_LANG)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+parser.setLanguage(JSON_LANG as any)
 
 export function extractJsonSymbols(filePath: string, source: string): SymbolNode[] {
   const tree = parser.parse(source)
   const out: SymbolNode[] = []
+  // rootNode is 'document'; first named child should be the top-level 'object'
   const root = tree.rootNode.namedChildren?.[0]
   if (!root || root.type !== 'object') return out
   for (const pair of root.namedChildren ?? []) {
     if (pair.type !== 'pair') continue
     const keyNode = pair.namedChildren?.[0]
     if (!keyNode || keyNode.type !== 'string') continue
-    const name = keyNode.text.replace(/['"]/g, '')
+    // Use string_content child if available, otherwise strip quotes from text
+    const nameContent = keyNode.namedChildren?.[0]?.text ?? keyNode.text.replace(/['"]/g, '')
     out.push({
-      id: `json:${filePath}:${name}`,
-      name, kind: 'json-key', language: 'json', filePath,
+      id: `json:${filePath}:${nameContent}`,
+      name: nameContent, kind: 'json-key', language: 'json', filePath,
       startLine: keyNode.startPosition.row + 1, startCol: keyNode.startPosition.column,
       endLine: keyNode.endPosition.row + 1, endCol: keyNode.endPosition.column,
       signature: '', doc: '', clusterId: ''
