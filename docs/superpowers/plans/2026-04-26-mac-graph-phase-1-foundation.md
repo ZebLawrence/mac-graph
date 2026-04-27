@@ -23,6 +23,7 @@ Recorded 2026-04-26 after T01 surfaced the following plan errors. Subsequent tas
 5. **`tree-sitter` must be `^0.22.0`** (not `^0.21.0`) to satisfy the grammars' `^0.22.4` peer requirement.
 6. **Native build scripts** (`better-sqlite3`, `kuzu`, `tree-sitter*`) are blocked by pnpm 10's default security policy. The cleanest fix is declarative: a `pnpm-workspace.yaml` at the repo root with an `onlyBuiltDependencies` array listing the native packages we trust. **T06 owns this** — Step 0 of T06 creates the file and re-runs `pnpm install` so kuzu compiles before its tests run. Subsequent native-using tasks (T07/T08/T13/T14) inherit the approved list, no extra work needed.
 7. **`tsconfig.json` cannot have `rootDir: "src"`** while `include` covers both `src/**/*` and `tests/**/*` — tests live outside rootDir, which makes `tsc` reject them. Drop `rootDir`. T27 (Dockerfile/build setup) will introduce a dedicated `tsconfig.build.json` that re-adds `rootDir: "src"` and excludes tests for production builds. Until then, `pnpm build` would emit `dist/src/...` + `dist/tests/...`, which is harmless because no task before T27 actually runs `pnpm build`.
+8. **kuzu `connection.query()` does not accept a params object** — the second argument is a progress callback. Parameterized queries must use `connection.prepare(cypher)` + `connection.execute(prepared, params)`. T07 wraps this in a private `pquery(cypher, params)` helper. T07 onwards: any code that needs parameterized kuzu queries must go through `GraphStore`'s public methods (which use `pquery`) or `store.raw()` (which also uses `pquery`). Plain `conn.query(cypher)` is reserved for parameter-less statements like `truncateAll`'s `DETACH DELETE`.
 
 ---
 
@@ -789,8 +790,24 @@ export class GraphStore {
     await this.db.close()
   }
 
+  /**
+   * Prepare + execute a parameterized Cypher query.
+   * kuzu's `connection.query()` does NOT accept a params object — its second
+   * argument is a progress callback. Parameterized execution requires
+   * prepare() + execute().
+   */
+  private async pquery(
+    cypher: string,
+    params: Record<string, unknown> = {}
+  ): Promise<kuzu.QueryResult> {
+    const prepared = await this.conn.prepare(cypher)
+    const result = await this.conn.execute(prepared, params)
+    // execute() may return a single QueryResult or an array; normalise to one
+    return Array.isArray(result) ? result[0] : result
+  }
+
   async upsertFile(f: FileNode): Promise<void> {
-    await this.conn.query(
+    await this.pquery(
       `MERGE (n:File {path: $path})
        SET n.language = $language, n.sha = $sha,
            n.size_bytes = $size_bytes, n.loc = $loc`,
@@ -802,7 +819,7 @@ export class GraphStore {
   }
 
   async getFile(path: string): Promise<FileNode | null> {
-    const r = await this.conn.query(
+    const r = await this.pquery(
       `MATCH (n:File {path: $path}) RETURN n`,
       { path }
     )
@@ -816,7 +833,7 @@ export class GraphStore {
   }
 
   async upsertSymbol(s: SymbolNode): Promise<void> {
-    await this.conn.query(
+    await this.pquery(
       `MERGE (n:Symbol {id: $id})
        SET n.name = $name, n.kind = $kind, n.language = $language,
            n.file_path = $file_path,
@@ -834,7 +851,7 @@ export class GraphStore {
   }
 
   async linkContains(filePath: string, symbolId: string): Promise<void> {
-    await this.conn.query(
+    await this.pquery(
       `MATCH (f:File {path: $file_path}), (s:Symbol {id: $sym_id})
        MERGE (f)-[:CONTAINS]->(s)`,
       { file_path: filePath, sym_id: symbolId }
@@ -842,7 +859,7 @@ export class GraphStore {
   }
 
   async symbolsInFile(filePath: string): Promise<SymbolNode[]> {
-    const r = await this.conn.query(
+    const r = await this.pquery(
       `MATCH (f:File {path: $path})-[:CONTAINS]->(s:Symbol) RETURN s`,
       { path: filePath }
     )
@@ -851,7 +868,7 @@ export class GraphStore {
   }
 
   async upsertChunk(c: ChunkNode): Promise<void> {
-    await this.conn.query(
+    await this.pquery(
       `MERGE (n:Chunk {id: $id})
        SET n.file_path = $file_path, n.start_line = $start_line,
            n.end_line = $end_line, n.text = $text,
@@ -865,7 +882,7 @@ export class GraphStore {
   }
 
   async upsertReference(r: ReferenceEdge): Promise<void> {
-    await this.conn.query(
+    await this.pquery(
       `MATCH (a:Symbol {id: $from}), (b:Symbol {id: $to})
        CREATE (a)-[:REFERENCES {kind: $kind, ref_line: $line, ref_col: $col}]->(b)`,
       { from: r.fromSymbolId, to: r.toSymbolId, kind: r.kind, line: r.refLine, col: r.refCol }
@@ -873,7 +890,7 @@ export class GraphStore {
   }
 
   async upsertModule(m: ModuleNode): Promise<void> {
-    await this.conn.query(
+    await this.pquery(
       `MERGE (n:Module {specifier: $spec}) SET n.is_external = $ext`,
       { spec: m.specifier, ext: m.isExternal }
     )
@@ -887,7 +904,7 @@ export class GraphStore {
 
   /** Escape hatch for ad-hoc queries from indexer/search code. */
   async raw<T = unknown>(cypher: string, params: Record<string, unknown> = {}): Promise<T[]> {
-    const r = await this.conn.query(cypher, params)
+    const r = await this.pquery(cypher, params)
     return (await r.getAll()) as T[]
   }
 }
