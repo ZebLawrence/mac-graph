@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/server.ts",
     "test": "vitest run --passWithNoTests --exclude tests/e2e",
     "test:watch": "vitest --passWithNoTests --exclude tests/e2e",
