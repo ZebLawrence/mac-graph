@@ -8,6 +8,7 @@ import { FtsStore } from './store/fts.js'
 import { Embedder } from './indexer/embed.js'
 import { WriteLock } from './lock.js'
 import { healthRoutes } from './http/routes/health.js'
+import { indexRoutes } from './http/routes/index-routes.js'
 
 export async function start(): Promise<void> {
   const startedAt = Date.now()
@@ -21,6 +22,11 @@ export async function start(): Promise<void> {
 
   const app = new Hono()
   app.route('/', healthRoutes({ startedAt, store, embedder, lock, dataDir: env.DATA_DIR }))
+  app.route('/', indexRoutes({
+    repoDir: env.REPO_DIR, dataDir: env.DATA_DIR,
+    store, fts, embedder, lock,
+    embeddingModel: env.EMBEDDING_MODEL
+  }))
 
   const hostname = env.BIND_ALL ? '0.0.0.0' : '127.0.0.1'
   const server = serve({ fetch: app.fetch, hostname, port: env.PORT })
