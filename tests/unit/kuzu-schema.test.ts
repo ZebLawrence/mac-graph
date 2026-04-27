@@ -16,7 +16,7 @@ describe('kuzu schema', () => {
     await applySchema(conn)
     await applySchema(conn)  // second call is no-op
 
-    const result = await conn.query("CALL show_tables() RETURN *")
+    const result = await conn.query("CALL show_tables() RETURN *") as kuzu.QueryResult
     const rows = await result.getAll()
     const names = rows.map((r: any) => r.name).sort()
     expect(names).toContain('Symbol')

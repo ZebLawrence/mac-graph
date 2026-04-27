@@ -34,9 +34,9 @@ export class GraphStore {
     params: Record<string, unknown> = {}
   ): Promise<kuzu.QueryResult> {
     const prepared = await this.conn.prepare(cypher)
-    const result = await this.conn.execute(prepared, params)
+    const result = await this.conn.execute(prepared, params as Record<string, kuzu.KuzuValue>)
     // execute() may return a single QueryResult or an array; normalise to one
-    return Array.isArray(result) ? result[0] : result
+    return Array.isArray(result) ? result[0]! : result
   }
 
   async upsertFile(f: FileNode): Promise<void> {
