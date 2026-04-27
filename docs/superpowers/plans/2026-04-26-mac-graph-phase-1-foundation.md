@@ -21,7 +21,7 @@ Recorded 2026-04-26 after T01 surfaced the following plan errors. Subsequent tas
 3. **`kuzu` was archived 2025-10-10**, last npm release `0.11.3`. We continue to use it — it's embedded, the binary works, and migrating is YAGNI for this MVP. Pin to `^0.11.0` (not `^0.6.0`). Acceptance: archived ≠ broken; we'll migrate if/when we hit an unfixable bug.
 4. **Vitest 2.x exits 1 on no-tests-found** (was 0 in v1). Add `--passWithNoTests` to `test` and `test:watch` scripts so the scaffold passes between tasks.
 5. **`tree-sitter` must be `^0.22.0`** (not `^0.21.0`) to satisfy the grammars' `^0.22.4` peer requirement.
-6. **Native build scripts** (`better-sqlite3`, `kuzu`, `tree-sitter`, etc.) are blocked by pnpm 10's default security policy. The scaffold task installs successfully but the natives don't compile until `pnpm approve-builds` is run. T07/T08/T13/T14 must include that step before their first test run.
+6. **Native build scripts** (`better-sqlite3`, `kuzu`, `tree-sitter*`) are blocked by pnpm 10's default security policy. The cleanest fix is declarative: a `pnpm-workspace.yaml` at the repo root with an `onlyBuiltDependencies` array listing the native packages we trust. **T06 owns this** — Step 0 of T06 creates the file and re-runs `pnpm install` so kuzu compiles before its tests run. Subsequent native-using tasks (T07/T08/T13/T14) inherit the approved list, no extra work needed.
 7. **`tsconfig.json` cannot have `rootDir: "src"`** while `include` covers both `src/**/*` and `tests/**/*` — tests live outside rootDir, which makes `tsc` reject them. Drop `rootDir`. T27 (Dockerfile/build setup) will introduce a dedicated `tsconfig.build.json` that re-adds `rootDir: "src"` and excludes tests for production builds. Until then, `pnpm build` would emit `dist/src/...` + `dist/tests/...`, which is harmless because no task before T27 actually runs `pnpm build`.
 
 ---
@@ -104,6 +104,7 @@ export interface Manifest {
 ```
 ~/projects/mac-graph/
 ├── package.json
+├── pnpm-workspace.yaml                 # native-build approval list
 ├── tsconfig.json
 ├── vitest.config.ts
 ├── eslint.config.js
@@ -573,7 +574,23 @@ git commit -m "feat(store): shared type definitions"
 ## Task 6: KuzuDB schema + migrations
 
 **Files:**
-- Create: `src/store/kuzu-schema.ts`, `tests/unit/kuzu-schema.test.ts`
+- Create: `pnpm-workspace.yaml`, `src/store/kuzu-schema.ts`, `tests/unit/kuzu-schema.test.ts`
+
+- [ ] **Step 0: Create `pnpm-workspace.yaml` and re-install to compile native bits**
+
+`pnpm-workspace.yaml`:
+
+```yaml
+onlyBuiltDependencies:
+  - better-sqlite3
+  - kuzu
+  - tree-sitter
+  - tree-sitter-css
+  - tree-sitter-html
+  - tree-sitter-json
+```
+
+Then re-run `pnpm install` from the project root. Native compile may take 30–90s on first run for kuzu. If the install hits "no C++ toolchain" or similar errors, escalate — likely missing Xcode CLI tools on macOS (`xcode-select --install`) or build-essential on Linux.
 
 - [ ] **Step 1: Write the failing test**
 
