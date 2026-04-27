@@ -1,6 +1,8 @@
 onlyBuiltDependencies:
+  - "@xenova/transformers"
   - better-sqlite3
   - kuzu
+  - sharp
   - tree-sitter
   - tree-sitter-css
   - tree-sitter-html

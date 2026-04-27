@@ -583,13 +583,17 @@ git commit -m "feat(store): shared type definitions"
 
 ```yaml
 onlyBuiltDependencies:
+  - "@xenova/transformers"
   - better-sqlite3
   - kuzu
+  - sharp
   - tree-sitter
   - tree-sitter-css
   - tree-sitter-html
   - tree-sitter-json
 ```
+
+Note: `sharp` is a transitive dep of `@xenova/transformers`. Including it explicitly avoids the prebuild-install pitfall T12 surfaced.
 
 Then re-run `pnpm install` from the project root. Native compile may take 30–90s on first run for kuzu. If the install hits "no C++ toolchain" or similar errors, escalate — likely missing Xcode CLI tools on macOS (`xcode-select --install`) or build-essential on Linux.
 
