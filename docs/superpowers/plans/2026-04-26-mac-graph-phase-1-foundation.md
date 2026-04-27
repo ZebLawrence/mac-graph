@@ -1217,7 +1217,7 @@ export async function enumerateSources(repoDir: string): Promise<EnumeratedFile[
   for (const f of ['.gitignore', '.mac-graph-ignore']) {
     try { ig.add(await readFile(join(repoDir, f), 'utf8')) } catch { /* missing is fine */ }
   }
-  ig.add(['.git/', '.mac-graph-data/', '.mac-graph-wiki/'])
+  ig.add(['.git/', '.mac-graph-data/', '.mac-graph-wiki/', '.*'])
 
   const out: EnumeratedFile[] = []
   await walk(repoDir, '')
