@@ -1,0 +1,31 @@
+services:
+  mac-graph:
+    image: mac-graph:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mac-graph
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PORT:-3030}:3030"
+    volumes:
+      - "${REPO_DIR:?REPO_DIR not set — point at the repo you want to index. Use scripts/start.sh or scripts/start.ps1.}:/repo:ro"
+      - "${DATA_DIR:?DATA_DIR not set}:/data"
+      - "${WIKI_DIR:?WIKI_DIR not set}:/wiki"
+    environment:
+      # BIND_ALL=1 makes the Hono server listen on 0.0.0.0 inside the container
+      # so the host port mapping above can reach it. Without this the server
+      # binds 127.0.0.1 inside the container and Docker's port forward
+      # silently drops the connection.
+      BIND_ALL: "1"
+      PORT: "3030"
+      DATA_DIR: "/data"
+      REPO_DIR: "/repo"
+      WIKI_DIR: "/wiki"
+      EMBEDDING_MODEL: Xenova/bge-small-en-v1.5
+      LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3030/health').then(r => r.ok ? process.exit(0) : process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
