@@ -24,11 +24,17 @@ mkdir -p "$DATA_DIR" "$WIKI_DIR"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+# Build once on first run; skip the expensive build on every subsequent start.
+if ! docker image inspect mac-graph:latest > /dev/null 2>&1; then
+  echo "Building mac-graph image for the first time (this may take a few minutes)…"
+  docker compose -f "$PROJECT_DIR/docker-compose.yml" build
+fi
+
 REPO_DIR="$REPO_DIR" \
 DATA_DIR="$DATA_DIR" \
 WIKI_DIR="$WIKI_DIR" \
 PORT="$PORT" \
-docker compose -f "$PROJECT_DIR/docker-compose.yml" -p mac-graph up -d
+docker compose -f "$PROJECT_DIR/docker-compose.yml" -p mac-graph up -d --pull never
 
 echo
 echo "mac-graph running:"

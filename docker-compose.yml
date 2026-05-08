@@ -1,6 +1,7 @@
 services:
   mac-graph:
     image: mac-graph:latest
+    pull_policy: never
     build:
       context: .
       dockerfile: Dockerfile
