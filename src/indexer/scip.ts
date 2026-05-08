@@ -6,8 +6,8 @@
 // the plan's snake_case (relative_path, symbol_roles, etc.).
 
 import { spawn } from 'node:child_process'
-import { readFile, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, unlink, access, writeFile, mkdir, rm, stat } from 'node:fs/promises'
+import { join, dirname, resolve, relative } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
 import { fromBinary } from '@bufbuild/protobuf'
@@ -20,26 +20,127 @@ import {
   type SyntaxKind,
 } from '../vendor/scip_pb.js'
 import type { SymbolNode, ReferenceEdge, RefKind } from '../store/types.js'
+import { env } from '../env.js'
 
 export async function runScip(repoDir: string): Promise<Index> {
   // Use a unique name in OS tmpdir to avoid races when multiple tests run concurrently.
   const out = join(tmpdir(), `.mac-graph-${randomBytes(6).toString('hex')}.scip`)
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(
-      'npx',
-      ['scip-typescript', 'index', '--cwd', repoDir, '--output', out],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
-    )
-    let stderr = ''
-    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
-    proc.on('close', code =>
-      code === 0 ? resolve() : reject(new Error(`scip-typescript exit ${code}: ${stderr}`))
-    )
-  })
-  const buf = await readFile(out)
-  // Clean up temp file (best-effort)
-  unlink(out).catch(() => undefined)
-  return fromBinary(IndexSchema, buf)
+  const tempConfigDir = join(tmpdir(), `.mac-graph-tsconfigs-${randomBytes(6).toString('hex')}`)
+  try {
+    // Resolve project args, creating synthetic tsconfigs in tempConfigDir for any
+    // referenced sub-projects that lack a tsconfig.json in the (read-only) repo dir.
+    const projectArgs = await prepareProjectArgs(repoDir, tempConfigDir)
+
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(
+        'npx',
+        ['scip-typescript', 'index', '--no-progress-bar', '--cwd', repoDir, '--output', out, ...projectArgs],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: { ...process.env, NODE_OPTIONS: `--max-old-space-size=${env.SCIP_HEAP_MB}` },
+        }
+      )
+      let stderr = ''
+      proc.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
+      proc.on('close', code =>
+        code === 0 ? resolve() : reject(new Error(`scip-typescript exit ${code}: ${stderr}`))
+      )
+    })
+    const buf = await readFile(out)
+    // Clean up temp file (best-effort)
+    unlink(out).catch(() => undefined)
+    return fromBinary(IndexSchema, buf)
+  } finally {
+    rm(tempConfigDir, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+/**
+ * Determine the list of explicit project paths to pass to scip-typescript.
+ *
+ * If the root tsconfig.json has project references, we check each referenced
+ * directory for a tsconfig.json.  For any that are missing (e.g. because /repo
+ * is mounted read-only) we write a synthetic tsconfig into a writable tempDir
+ * that tells TypeScript to include all TS/JS files from the actual source path.
+ * Passing explicit project args with --cwd repoDir preserves the correct
+ * relative file paths in the SCIP output.
+ */
+async function prepareProjectArgs(repoDir: string, tempDir: string): Promise<string[]> {
+  const rootTsconfigPath = join(repoDir, 'tsconfig.json')
+
+  let rootContent: string
+  try {
+    rootContent = await readFile(rootTsconfigPath, 'utf8')
+  } catch {
+    // No root tsconfig — create a synthetic one covering the whole repo.
+    return [await createSyntheticTsconfig(repoDir, tempDir, repoDir)]
+  }
+
+  let rootConfig: { references?: Array<{ path: string }> }
+  try {
+    rootConfig = JSON.parse(rootContent)
+  } catch {
+    // tsconfig contains JSONC comments or is otherwise unparseable — pass it
+    // directly and let scip-typescript handle it.
+    return [rootTsconfigPath]
+  }
+
+  const references = rootConfig.references
+  if (!references || references.length === 0) {
+    return [rootTsconfigPath]
+  }
+
+  const projects: string[] = []
+  for (const ref of references) {
+    const refAbsPath = resolve(repoDir, ref.path)
+
+    // Determine whether the reference points at a directory or a tsconfig file.
+    let tsconfigPath: string
+    let sourceDir: string
+    try {
+      const s = await stat(refAbsPath)
+      if (s.isDirectory()) {
+        tsconfigPath = join(refAbsPath, 'tsconfig.json')
+        sourceDir = refAbsPath
+      } else {
+        tsconfigPath = refAbsPath
+        sourceDir = dirname(refAbsPath)
+      }
+    } catch {
+      // Path doesn't exist yet — treat as a directory reference.
+      tsconfigPath = join(refAbsPath, 'tsconfig.json')
+      sourceDir = refAbsPath
+    }
+
+    try {
+      await access(tsconfigPath)
+      projects.push(tsconfigPath) // exists — use as-is
+    } catch {
+      // Missing tsconfig — synthesise one in the writable tempDir.
+      projects.push(await createSyntheticTsconfig(repoDir, tempDir, sourceDir))
+    }
+  }
+
+  return projects
+}
+
+/**
+ * Write a minimal tsconfig.json inside tempDir that indexes all TS/JS files
+ * under sourceDir.  The file is placed at a path mirroring the sourceDir
+ * structure relative to repoDir so that any intra-project imports resolve.
+ */
+async function createSyntheticTsconfig(repoDir: string, tempDir: string, sourceDir: string): Promise<string> {
+  const relToRepo = relative(repoDir, sourceDir)
+  const tempSubDir = relToRepo ? join(tempDir, relToRepo) : tempDir
+  await mkdir(tempSubDir, { recursive: true })
+
+  const tsconfigPath = join(tempSubDir, 'tsconfig.json')
+  const config = {
+    compilerOptions: { allowJs: true, rootDir: sourceDir },
+    include: [`${sourceDir}/**/*.ts`, `${sourceDir}/**/*.tsx`, `${sourceDir}/**/*.js`],
+  }
+  await writeFile(tsconfigPath, JSON.stringify(config, null, 2))
+  return tsconfigPath
 }
 
 export interface ParsedScip {

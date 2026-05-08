@@ -7,7 +7,8 @@ const Schema = z.object({
   REPO_DIR: z.string().default('/repo'),
   WIKI_DIR: z.string().default('/wiki'),
   EMBEDDING_MODEL: z.string().default('Xenova/bge-small-en-v1.5'),
-  LOG_LEVEL: z.string().default('info')
+  LOG_LEVEL: z.string().default('info'),
+  SCIP_HEAP_MB: z.coerce.number().int().positive().default(8192),
 })
 
 export type Env = z.infer<typeof Schema>

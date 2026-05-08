@@ -31,7 +31,15 @@ $env:DATA_DIR = $DataDir
 $env:WIKI_DIR = $WikiDir
 $env:PORT     = $Port
 
-docker compose -f (Join-Path $ProjectDir "docker-compose.yml") -p mac-graph up -d
+# Build once on first run; skip the expensive build on every subsequent start.
+# $imageExists = docker image inspect mac-graph:latest 2>$null
+# if ($LASTEXITCODE -ne 0) {
+Write-Host "Building mac-graph image for the first time (this may take a few minutes)…"
+docker compose -f (Join-Path $ProjectDir "docker-compose.yml") build
+if ($LASTEXITCODE -ne 0) { throw "docker compose build failed (exit $LASTEXITCODE)" }
+# }
+
+docker compose -f (Join-Path $ProjectDir "docker-compose.yml") -p mac-graph up -d --pull never
 if ($LASTEXITCODE -ne 0) { throw "docker compose up failed (exit $LASTEXITCODE)" }
 
 Write-Host ""
